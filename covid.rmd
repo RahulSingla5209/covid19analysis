@@ -1,0 +1,307 @@
+---
+title: "Analysis of COVID-19 Testing in India"
+output: 
+     html_document: 
+     highlight: pygments
+     theme: spacelab
+---
+
+```{r load-packages, echo=FALSE, message = FALSE,warning=FALSE}
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(statsr)
+library(gridExtra)
+library(janitor)
+```
+     
+## Introduction
+
+Till mid-April, India was handling the COVID-19 situation well with its 1.25 billion population in comparison to all the other countries(such as US and other countries) around the world.
+
+But the situation changed pretty quickly at the end of June 2020. India is now among the top 5 countries with the highest number of cases.
+
+We all have heard multiple times from many health care representatives that the only way to contain the spread of COVID-19 is *testing, testing, and testing*. Therefore, it is important to first analyze the impact of COVID-19 testing done in containing the spread in different countries. Using learnings from that analysis, we can understand how badly or well India and different Indian states are performing.
+
+## Data source and tools
+
+For this project, the COVID-19 testing data and its results in different countries were
+obtained from [Our World in Data](https://ourworldindata.org/coronavirus-testing#source-information-country-by-country). The data on testing in different Indian states, was
+found from [covid19india.org](https://api.covid19india.org/) 
+
+All the analysis has been done using RStudio(R - version 4.0) and the output HTML file has been generated using R-Mardown. (most snippets of code have been hidden to reduce the length of file).
+
+```{r load-data, echo=FALSE}
+world_covid_data <- read.csv("owid-covid-data.csv", sep = ",")
+india_covid_data <- read.csv("statewise_tested_numbers_data.csv", sep = ",")
+
+```
+
+```{r data_cleanup_world, echo=FALSE}
+world_covid_data <- world_covid_data %>%
+                        mutate(days = round(as.numeric(difftime(date, "2019-12-31", unit="days"))))
+world_covid_data <- world_covid_data %>%
+                        mutate(new_testing = total_tests - lag(total_tests))
+
+countries <- c("India", "United States", "Canada", "Russia")
+
+filtered_world_covid <- world_covid_data %>%
+                                filter(location %in% countries) %>%
+                                filter(new_cases != 0, new_testing != 0) %>%
+                                mutate(test_per_positive = new_testing / new_cases) %>%
+                                mutate(death_rate = (new_deaths / new_cases) * 100)
+```
+
+
+## Testing Analysis - India vs World
+
+The covid-19 statistics of United States, Russia, and Canada have been compared angainst India's statistics. Even though United States and Russia have high number of total covid-19 cases(like India), these countries have been chosen because they are in completely different stages of spread of coronavirus when compared to India. Canada has been chosen to represent a country which has performed well in containment of the virus.
+
+First, let's have a look the number of daily cases across these nations.
+```{r, echo=FALSE, message=FALSE,warning=FALSE}
+filtered_world_covid %>% 
+        ggplot() +
+        geom_line(aes(x = days, y = new_cases, color = location)) +
+        geom_smooth(aes(x = days, y = new_cases, color = location), size = 0.5) +
+        geom_text(aes(x = 150, y = 30000, color = "United States", label = "United States")) +
+        geom_text(aes(x = 160, y = 15000, color = "India", label = "India"), family = "sans") +
+        geom_text(aes(x = 120, y = 12000, color = "Russia", label = "Russia")) +
+        geom_text(aes(x = 160, y = 3000, color = "Canada", label = "Canada")) +
+        ylim(0, 50000) +
+        theme_classic()+
+        theme(legend.position = "none") +
+        labs(x = "Days", 
+             y = "Number of cases",
+             title = "Number of daily COVID-19 cases in different countries",
+             caption = "Data source: Our World in Data") +
+        theme(plot.title = element_text(size = 12),
+              text = element_text(family = "sans", color = "gray25"),
+              plot.caption = element_text(color = "gray30"),
+              plot.background = element_rect(fill = "gray95"),
+              plot.margin = unit(c(5, 10, 5, 10), units = "mm"))
+```
+
+Please note: Day 0 refers to 31^th^ December, 2019
+
+Unlike other 3 countries, India's exponential growth of coronavirus cases clearly stands out. Russia has clearly moved out it's exponential growth. Canda seems to be performing well from the start.
+
+Looking at this graph, one might conclude that India is not doing enough testing. So, to verify this conclusion, let's compare the daily testing of each of these nations.
+
+```{r, echo=FALSE}
+filtered_world_covid %>% 
+        ggplot() +
+        geom_line(aes(x = days, y = new_testing/1000, color = location)) +
+        geom_text(aes(x = 120, y = 400, color = "United States", label = "United States")) +
+        geom_text(aes(x = 150, y = 150, color = "India", label = "India"), family = "sans") +
+        geom_text(aes(x = 160, y = 380, color = "Russia", label = "Russia")) +
+        geom_text(aes(x = 170, y = 80, color = "Canada", label = "Canada")) +
+        theme_classic()+
+        theme(legend.position = "none") +
+        labs(x = "Days", 
+             y = "Number of tests (in thousands)",
+             title = "Number of daily COVID-19 tests performed in different countries",
+             caption = "Data source: Our World in Data") +
+        theme(plot.title = element_text(size = 12),
+              text = element_text(family = "sans", color = "gray25"),
+              plot.caption = element_text(color = "gray30"),
+              plot.background = element_rect(fill = "gray95"),
+              plot.margin = unit(c(5, 10, 5, 10), units = "mm"))
+```
+
+
+Surprisingly, India has started performing 2 Lakhs(or 200K) per day and it is ramping up it's testing linearly like all the countries. Having said that, India, as expected previously, is not performing enough tests to control the spread.
+
+The next logical question is *how much testing is enough?*
+
+## Tests per positive
+Tests per positive case refers to the number of tests performed per positive case$(Test\ per\ positive = Number\ of\ tests/ Number\ of\ positive\ cases)$. WHO has recommended that countries should perform at least [10 to 30 tests per positive case discovered](https://ourworldindata.org/coronavirus-testing#note-2)
+
+Let's see how these nations perform with respect to tests per positive.
+```{r, echo=FALSE}
+filtered_world_covid <- filtered_world_covid %>%
+                                mutate(testing_level = case_when(
+                                        between(test_per_positive, 0, 15) ~ "Below WHO recommendation",
+                                        between(test_per_positive, 16, 30) ~ "On-par with WHO recommendation",
+                                        T ~ "Better than WHO recommendation"
+                                )) %>%
+                                mutate(testing_level = factor(testing_level, 
+                                                              levels = c("Below WHO recommendation", 
+                                                                         "On-par with WHO recommendation", 
+                                                                         "Better than WHO recommendation")))
+```
+
+```{r plot, echo=FALSE}
+filtered_world_covid %>% 
+        ggplot() +
+        geom_col(aes(x = days, y = new_cases, fill = testing_level)) +
+        labs(y = "New Cases", x = "Days") +
+        facet_wrap(~ location, scales = "free") +
+        labs(x = "Days", 
+             y = "Number of cases",
+             title = "Number of daily COVID-19 cases in different countries",
+             caption = "Data source: Our World in Data") +
+        theme(plot.title = element_text(size = 12),
+              text = element_text(family = "sans", color = "gray25"),
+              plot.caption = element_text(color = "gray30"),
+              plot.background = element_rect(fill = "gray95"))+
+        scale_fill_manual(values = c("red", "#FFE200", "#00C700"),
+                          name = "Testing Level",
+                          labels = c("Below WHO \nrecommendation(<15)",
+                                     "On-par with WHO\nrecommendation(15-30)",
+                                     "Better than WHO\nrecommendation(>30)"))
+```
+
+It's easy to figure that going into "Yellow" or "Green" region has helped the 3 countries in reducing the increase in number of new cases. In other words, *testing more than 15 people per positive case has helped US, Canada and Russia in slowing down the number of cases*. 
+
+One can easily argue that reduction in increase of number of cases with increased testing is purely co-incidental for these 3 countries. 
+Let's check correlation using Kendall's method between tests per positive and the number of new cases. Since many countries were not prepared for COVID-19 untill March 2020, the data from Jan 1, 2020 to Mar 31, 2020 has been removed.
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+correlation_test <- world_covid_data %>%
+                                filter(days > 90) %>%
+                                filter(new_cases > 5, new_testing != 0) %>%
+                                mutate(test_per_positive = new_testing / new_cases) %>%
+                                mutate(testing_level = case_when(
+                                        between(test_per_positive, 0, 15) ~ "Below WHO recommendation",
+                                        T ~ "On-par or Better than\n WHO recommendation"
+                                ))
+
+corr_result <- cor(correlation_test$test_per_positive, correlation_test$new_cases, use="complete.obs", method = "kendall")
+
+correlation_test %>%
+        filter(new_cases > 10, test_per_positive < 50, test_per_positive > 0) %>%
+        ggplot() +
+        geom_smooth(aes(x = test_per_positive, y = new_cases), size = 2) +
+        geom_point(aes(x = test_per_positive, y = new_cases), size = 0.25) +
+        theme_classic()+
+        theme(legend.position = "none") +
+        labs(x = "Test Per Positive", 
+             y = "Number of daily cases(log10)",
+             title = "Correlation between number of daily COVID-19 and test per positive",
+             caption = "Data source: Our World in Data") +
+        theme(plot.title = element_text(size = 12),
+              text = element_text(family = "sans", color = "gray25"),
+              plot.caption = element_text(color = "gray30"),
+              plot.background = element_rect(fill = "gray95"),
+              plot.margin = unit(c(5, 10, 5, 10), units = "mm")) +
+        scale_y_log10()
+        
+```
+
+Correlation co-efficent is good enough to indicate that something is going-on.  
+Let's perform *hypothesis t-test* to confirm weather the correlation I recieved was sheer luck or not. 
+
+```{r}
+inference_result <- correlation_test %>% 
+        filter(new_cases < 1000) %>% 
+        inference(x = testing_level, y = new_cases, statistic = "mean", type = "ht", alternative = "greater", method = "theoretical", verbose =  F, null = 0)
+```
+
+The hypothesis t-test returned a p-value less than 0.001. This means that if tests per positve had no impact on  new_cases , then there less than 0.1% probability that we will observe this kind of data.
+
+We can safely conclude that *India should aim for testing 15 or more people per positive case*.  
+
+## India's current state
+
+Let's have a look at the number of COVID-19 cases in Indian states and the level of testing.
+
+```{r data_cleanup_india, echo=FALSE}
+india_covid_data <- india_covid_data %>%
+                        clean_names()
+india_covid_data <- india_covid_data %>%
+                        mutate(date = dmy(updated_on))
+india_covid_data <- india_covid_data %>%
+                        mutate(new_tests = total_tested - lag(total_tested)) %>%
+                        mutate(new_cases = positive - lag(positive)) %>% 
+                        mutate(days = round(as.numeric(difftime(date, "2020-04-17", unit="days")))) %>%
+                        mutate(new_tests = ifelse(new_tests<0, 0, new_tests)) %>%
+                        mutate(new_cases = ifelse(new_cases<0, 0, new_cases))
+
+filtered_india_covid <- india_covid_data %>%
+                                filter(new_cases != 0, new_tests != 0) %>%
+                                mutate(test_per_positive = new_tests / new_cases)
+
+latest_india_testing <- filtered_india_covid %>%
+                                group_by(state) %>%
+                                filter(days > max(days)-5) %>%
+                                summarise(testing = mean(new_tests), 
+                                          test_per_positive = mean(test_per_positive),
+                                          new_cases = mean(new_cases))
+latest_india_testing <- latest_india_testing %>%
+                                mutate(tests_level = case_when(
+                                        between(test_per_positive, 0, 15) ~ "Below WHO standard",
+                                        between(test_per_positive, 16, 30) ~ "On-par with WHO standard",
+                                        T ~ "Better than WHO standard"
+                                )) %>%
+                                mutate(tests_level = factor(tests_level, 
+                                                              levels = c("Below WHO standard", 
+                                                                         "On-par with WHO standard", 
+                                                                         "Better than WHO standard")))
+                        
+latest_india_testing %>% 
+                mutate(state = recode(state, "Dadra and Nagar Haveli and Daman and Diu" = "Daman and Diu",
+                                      "Andaman and Nicobar Islands" = "Andaman and Nicobar")) %>%
+                ggplot() +
+                geom_col(aes(x = state, y = new_cases, fill = tests_level)) +
+                theme_classic()+
+                theme(axis.text.x = element_text(angle = 90,hjust=1, vjust = 0,size=10)) +
+                labs(x = "States",
+                     y = "Number of cases",
+                     title = "Number of daily COVID-19 cases in different Indian states",
+                     subtitle = "From 20 Jun to 25 Jun",
+                     caption = "Data source: covid19india.org") +
+                theme(plot.title = element_text(size = 12),
+                      text = element_text(family = "sans", color = "gray25"),
+                      plot.caption = element_text(color = "gray30"),
+                      plot.background = element_rect(fill = "gray95"))+
+                scale_fill_manual(values = c("red", "#FFE200", "#00C700"),
+                          name = "Testing Level",
+                          labels = c("Below WHO \nrecommendation(<15)",
+                                     "On-par with WHO\n recommendation(15-30)",
+                                     "Better than WHO\n recommendation(>30)"))
+
+```
+
+Clearly, all the states with high number of COVID-19 cases are struggling to get perform required amount of testing.
+
+From the previous analysis, we established that performing 15 or more tests per positive helps in controlling the number of COVID-19. Therefore, assuming 15 to be bare miniumum of tests required to be performed per positive, let's have a look at how different states are performing.(To ease the understanding, the data of states that have less than 100 daily cases has been removed.)
+
+```{r, echo=FALSE}
+testing_required <- latest_india_testing %>%
+                                mutate(testing_required = (testing/test_per_positive)*15) %>%
+                                mutate(testing_difference = ((testing_required - testing)/testing))  
+testing_required %>% 
+                filter(new_cases > 100) %>%
+                ggplot() +
+                geom_col(aes(x = state, y = testing, color = "cyan"), fill = "cyan") +
+                geom_col(aes(x = state, y = testing_required, color = "red"), fill = NA) +
+                geom_text(aes(x = state, y = testing_required, 
+                              label = scales::percent(testing_difference, accuracy = 1)), 
+                        vjust = -1, size = 3)+
+                theme_classic()+
+                labs(x = "States",
+                     y = "Number of tests",
+                     title = "Amount of COVID-19 test deficit in different Indian states",
+                     subtitle = "From 20 Jun to 25 Jun",
+                     caption = "Data source: covid19india.org") +
+                theme(plot.title = element_text(size = 12),
+                      text = element_text(family = "sans", color = "gray25"),
+                      plot.caption = element_text(color = "gray30"),
+                      plot.background = element_rect(fill = "gray95"))+
+                theme(axis.text.x = element_text(angle = 90,hjust=1, vjust = 0, size=10))+
+                ylim(0,80000) +
+                scale_color_identity(
+                          breaks = c("red", "cyan"),
+                          labels = c("Recommended Testing", "Current Testing"),
+                          guide = "legend",
+                          name = NULL)
+```
+
+States such as Delhi and Maharashtra are missing the required target level by more than 150%. States such as Andra Pradesh, Uttar Pradesh, and West Bengal have stepped to the task.
+
+## Conclusion and Recommendation
+
+To contain the spread of COVID-19 further in the month of July:  
+
+1. India needs to increase it's testing capacity.  
+2. Indian states can rethink their testing strategy as well. States should work as a single central body. They can pool in their resources to collectively reach their testing target. E.g. states like Andhra Pradesh can perform testing for Mumbai and Telanaga patients as well.  
+3. India can use strategic lockdowns to increase it's testing capacity.
